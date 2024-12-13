@@ -1,0 +1,43 @@
+model_family: llama2-7b
+
+data_path: locuslab/TOFU
+split: full
+batch_size: 8
+gradient_accumulation_steps: 4
+num_epochs: 10
+retain_wt: 1
+lr: 1e-5
+weight_decay: 0.01
+save_dir: paper_models/ft_epoch${num_epochs}_lr${lr}_${model_family}_${split}_wd${weight_decay}
+seed: null
+
+eval:
+  model_path: ${..model_path}
+  model_family: ${..model_family}
+  save_dir: ${..save_dir}
+  data_path: [locuslab/TOFU, locuslab/TOFU, locuslab/TOFU, locuslab/TOFU]
+  split: ${..split}
+  split_list:
+    - retain_perturbed
+    - real_authors_perturbed
+    - world_facts_perturbed
+
+  eval_task: [eval_log, eval_real_author_wo_options, eval_real_world_wo_options]
+  question_key: [question, question, question]
+  answer_key: [answer, answer, answer]
+  base_answer_key: [paraphrased_answer, answer, answer]
+  perturbed_answer_key: [perturbed_answer, perturbed_answer, perturbed_answer]
+
+  generation:
+    max_length: 200
+    max_new_tokens: null
+
+  save_generated_text: true
+
+  ds_size: 300
+
+  overwrite: true
+  use_pretrained: false
+
+  batch_size: 40
+  retain_result: null

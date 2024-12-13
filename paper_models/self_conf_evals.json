@@ -1,0 +1,42 @@
+{
+  "llama2_ft": {
+    "conf_norm": 0.9935,
+    "conf_unnorm": 0.8321
+  },
+  "llama2_npo": {
+    "conf_norm": 0.5844,
+    "conf_unnorm": 0.0058
+  },
+  "llama2_retain": {
+    "conf_norm": 0.8852,
+    "conf_unnorm": 0.0736
+  },
+  "llama2_ft_locus": {
+    "conf_norm": 0.9893,
+    "conf_unnorm": 0.7097
+  },
+  "llama32_retain": {
+    "conf_norm": 0.781,
+    "conf_unnorm": 0.0144
+  },
+  "llama32_ft": {
+    "conf_norm": 0.9036,
+    "conf_unnorm": 0.2166
+  },
+  "AltPO-single": {
+    "conf_norm": 0.8705,
+    "conf_unnorm": 0.0731
+  },
+  "AltPO_2": {
+    "conf_norm": 0.8272,
+    "conf_unnorm": 0.0414
+  },
+  "AltPO": {
+    "conf_norm": 0.7782,
+    "conf_unnorm": 0.0141
+  },
+  "AltPO_10": {
+    "conf_norm": 0.6523,
+    "conf_unnorm": 0.0018
+  }
+}

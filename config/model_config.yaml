@@ -1,0 +1,22 @@
+llama2-7b:
+  hf_key: NousResearch/Llama-2-7b-chat-hf
+  ft_model_path: locuslab/tofu_ft_llama2-7b # finetuned model loaded from tofu's checkpoints
+  results_path: paper_models/tofu_ft_llama2-7b
+  retain_evals_path: data/ft_epoch5_lr1e-05_llama2-7b_retain{split}_wd0.01
+  question_start_tag: "[INST] "
+  question_end_tag: " [/INST]"
+  answer_tag: ""
+  gradient_checkpointing: true
+  flash_attention2: true
+llama3.2-3b-inst:
+  hf_key: meta-llama/Llama-3.2-3B-Instruct
+  ft_model_path: /work/pi_wenlongzhao_umass_edu/vdorna_umass_edu/unlearning/main/696-tofu-fork/paper_models/ft_epoch5_lr5e-05_llama3.2-3b-inst_full_wd0.01 # local finetuned model path
+  results_path: paper_models/tofu_ft_llama3.2-3b-inst
+  retain_evals_path: data/ft_epoch5_lr5e-05_llama3.2-3b-inst_retain{split}_wd0.01
+  question_start_tag: <|start_header_id|>system<|end_header_id|>\n\nYou are a helpful assistant.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n
+  question_end_tag: <|eot_id|>
+  answer_tag: <|start_header_id|>assistant<|end_header_id|>\n\n
+  gradient_checkpointing: true
+  flash_attention2: true
+
+  

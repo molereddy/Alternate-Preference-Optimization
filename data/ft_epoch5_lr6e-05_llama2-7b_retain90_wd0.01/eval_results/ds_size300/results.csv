@@ -1,0 +1,2 @@
+step,MU V2,Model Utility,logFQ,Forget Quality,FQ V2,Forget Truth Ratio,Real Authors ROUGE,Real Authors Probability,Real Authors Truth Ratio,Real World ROUGE,Real World Probability,Real World Truth Ratio,Retain ROUGE,Retain Probability,Retain Truth Ratio,Forget ROUGE,Forget Probability,KS Test Forget,Forget Cleanness
+0,0.633,0.603,0.0,1.0,0.0,0.683,0.847,0.417,0.544,0.839,0.417,0.552,0.99,0.992,0.481,0.39,0.139,0.0,0.944

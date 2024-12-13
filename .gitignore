@@ -1,0 +1,8 @@
+.vscode/
+paper_models/*/*/*/*
+*.sh
+.idea/
+outputs/
+__pycache__
+scripts/
+_*
