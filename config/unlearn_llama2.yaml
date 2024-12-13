@@ -1,4 +1,4 @@
-model_family: llama3.2-3b-inst
+model_family: llama2-7b
 model_path: null
 
 lr: 5e-5
