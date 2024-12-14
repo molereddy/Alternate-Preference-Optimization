@@ -1,8 +1,4 @@
 {
-  "llama2_ft": {
-    "conf_norm": 0.9935,
-    "conf_unnorm": 0.8321
-  },
   "llama2_npo": {
     "conf_norm": 0.5844,
     "conf_unnorm": 0.0058
@@ -11,7 +7,7 @@
     "conf_norm": 0.8852,
     "conf_unnorm": 0.0736
   },
-  "llama2_ft_locus": {
+  "llama2_ft": {
     "conf_norm": 0.9893,
     "conf_unnorm": 0.7097
   },
