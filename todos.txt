@@ -1,4 +1,4 @@
-1. remove local path for llama3.2 from model config
+1. DONE
 2. Add gibberish evals, FQ V2
 3. Add self conf evals
 4. Combine above evals to occur during generation
