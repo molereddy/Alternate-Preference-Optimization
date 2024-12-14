@@ -67,7 +67,7 @@ def main(cfg):
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.pad_token = tokenizer.eos_token
 
-    max_length = 500
+    max_length = 256
     intial_ckpt_ref_needed = (cfg.retain_type == 'KL')
     if 'npo' in cfg.forget_loss or 'ppo' in cfg.forget_loss or 'dpo' in cfg.forget_loss or 'KL' in cfg.forget_loss:
         intial_ckpt_ref_needed = True
