@@ -1,25 +1,17 @@
 {
-  "llama2_npo": {
+  "NPO": {
     "conf_norm": 0.5844,
     "conf_unnorm": 0.0058
   },
-  "llama2_retain": {
+  "retain": {
     "conf_norm": 0.8852,
     "conf_unnorm": 0.0736
   },
-  "llama2_ft": {
+  "FT": {
     "conf_norm": 0.9893,
     "conf_unnorm": 0.7097
   },
-  "llama32_retain": {
-    "conf_norm": 0.781,
-    "conf_unnorm": 0.0144
-  },
-  "llama32_ft": {
-    "conf_norm": 0.9036,
-    "conf_unnorm": 0.2166
-  },
-  "AltPO-single": {
+  "AltPO_1": {
     "conf_norm": 0.8705,
     "conf_unnorm": 0.0731
   },
@@ -27,7 +19,7 @@
     "conf_norm": 0.8272,
     "conf_unnorm": 0.0414
   },
-  "AltPO": {
+  "AltPO_5": {
     "conf_norm": 0.7782,
     "conf_unnorm": 0.0141
   },
