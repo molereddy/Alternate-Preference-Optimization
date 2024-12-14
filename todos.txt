@@ -3,3 +3,6 @@
 3. Add self conf evals
 4. Combine above evals to occur during generation
 5. Remove self conf evals file from paper_models?
+6. cleanup evals code
+7. re-name method name
+8. remove extra code from trainer including schedule based training

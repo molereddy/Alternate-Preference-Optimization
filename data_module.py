@@ -20,6 +20,7 @@ def convert_raw_data_to_model_format(tokenizer, max_length,  question, answer, m
         truncation=True, 
     )
     pad_length = max_length - len(encoded.input_ids)
+    assert pad_length > 0
     pad_input_ids = encoded['input_ids'] + [tokenizer.eos_token_id] * pad_length
     pad_attention_mask = encoded['attention_mask'] + [0] * pad_length
     if len(encoded.input_ids) == max_length:
@@ -31,6 +32,7 @@ def convert_raw_data_to_model_format(tokenizer, max_length,  question, answer, m
     for i in range(num_question_tokens): label[i] = -100
 
     return torch.tensor(pad_input_ids),torch.tensor(label),torch.tensor(pad_attention_mask)
+
 
 class TextForgetDatasetQA(Dataset):
     def __init__(self, data_path, tokenizer, model_family,  max_length=512, split = "forget10", loss_type="idk"):
