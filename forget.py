@@ -28,8 +28,6 @@ def main(cfg):
                                           'eval_results/ds_size300/eval_log_aggregated.json')
     
     set_seed(cfg.seed)
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-    tokenizer.pad_token = tokenizer.eos_token
     
     print("Base cfg before prep is", cfg)
     # setup paths
@@ -56,11 +54,13 @@ def main(cfg):
     shutil.rmtree(cfg.save_dir, ignore_errors=True)
     Path(cfg.save_dir).mkdir(parents=True, exist_ok=True)
     
+    # save cfg
     with open(f"{cfg.save_dir}/config.yaml", "w") as file:
         OmegaConf.save(cfg, file)
-
-    print("Saving to: ", os.path.abspath(cfg.save_dir))
-
+        
+    # setup tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer.pad_token = tokenizer.eos_token
 
     if os.path.exists(cfg.save_dir):
         # print(f"Method directory already exists:{os.path.abspath(cfg.save_dir)}")
@@ -111,24 +111,22 @@ def main(cfg):
     steps_per_epoch = len(torch_format_dataset)//(batch_size*gradient_accumulation_steps)
 
     max_steps = int(cfg.num_epochs*len(torch_format_dataset))//(batch_size*gradient_accumulation_steps)
+    warmup_steps = max(2, steps_per_epoch) if max_steps != 0 else 0 # warming up for an epoch
     eval_interval = steps_per_epoch
     eval_interval //= cfg.augment_k
-    warmup_steps = max(2, steps_per_epoch) if max_steps != 0 else 0
-    # evaluation_strategy = "epoch"
 
     training_args = transformers.TrainingArguments(
             per_device_train_batch_size=batch_size,
             per_device_eval_batch_size=batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
-            warmup_steps=warmup_steps, # warming up for an epoch
+            warmup_steps=warmup_steps,
             max_steps=max_steps,
             learning_rate=cfg.lr,
             logging_steps=max(2,max_steps//20),
             logging_dir=f'{cfg.save_dir}/logs',
             output_dir=cfg.save_dir,
             optim="paged_adamw_32bit",
-            # save_strategy="steps" if cfg.save_model and (not cfg.eval_only) else "no",
-            save_strategy="no",
+            save_strategy="steps" if cfg.save_model and (not cfg.eval_only) else "no",
             save_steps=steps_per_epoch,
             save_only_model=True,
             ddp_find_unused_parameters= False,
@@ -143,55 +141,17 @@ def main(cfg):
     if cfg.seed is not None:
         training_args.seed = cfg.seed
     
-    # assert not cfg.ds_enabled
-    # if "precision" not in cfg or cfg.precision=='fp32':
-    #     dtype=torch.float32
-    #     if cfg.ds_enabled: training_args.deepspeed = 'config/ds_config_fp32.json' # need to write file
-    #     training_args.fp32 = True
-    # elif cfg.precision=='bf16':
-    dtype=torch.bfloat16
-    # if cfg.ds_enabled: training_args.deepspeed = 'config/ds_config.json'
-    training_args.bf16 = True
-    # elif cfg.precision=='fp16':
-    #     dtype=torch.float16
-    #     if cfg.ds_enabled: training_args.deepspeed = 'config/ds_config_fp16.json' # need to write file
-    #     training_args.fp16 = True
-    # else:
-    #     assert False
-    
-    # print(training_args)
-    #first get the base model architectur2e
-    #if there is a pytorch*.bin file in the model path, then load that. use regex there can be anythign in between pytorch and .bin
-    # if 'locuslab' not in cfg.model_path:
-    #     import re
-    #     path_found = False
-    #     for file in os.listdir(cfg.model_path):
-    #         if re.search("pytorch.*\.bin", file):
-    #             path_found = True
-    #             break
-            
-    #         if re.search("model-*\.safetensors", file):
-    #             path_found = True
-    #             break
-
+    # load model(s)
     model_kwargs = {
         'attn_implementation': 'flash_attention_2',
-        'torch_dtype': dtype,
+        'torch_dtype': torch.bfloat16,
         'trust_remote_code': True,
         'cache_dir': HF_HOME
     }
     load_from = model_cfg["ft_model_path"]
-    # if cfg.forget_loss == "base":
-    #     load_from = model_cfg["hf_key"]
-    # elif not path_found:  # need to update later to make it an option
-    #     load_from = model_cfg["tofued_hf_key"]
-    # else:
-    #     load_from = cfg.model_path
     model = AutoModelForCausalLM.from_pretrained(load_from, **model_kwargs)
-    
     # Hot fix for https://discuss.huggingface.co/t/help-with-llama-2-finetuning-setup/50035
     model.generation_config.do_sample = True
-    
     #now we have a HuggingFace model 
     if model_cfg["gradient_checkpointing"] == "true":
         model.gradient_checkpointing_enable()
@@ -199,14 +159,14 @@ def main(cfg):
     if intial_ckpt_ref_needed:
         oracle_model = copy.deepcopy(model).to('cuda')
         oracle_model.eval()
+    training_args.bf16 = True
 
     trainer = CustomTrainerForgetting(
         model=model,
         tokenizer=tokenizer,
         train_dataset=torch_format_dataset,
         eval_dataset = torch_format_dataset,
-        compute_metrics=None,                # the callback for computing metrics, None in this case since you're doing it in your callback
-        # callbacks=[GlobalStepDeletionCallback],
+        compute_metrics=None,
         args=training_args,
         data_collator=collator,
         hyperparams=hyperparams,
@@ -221,8 +181,8 @@ def main(cfg):
     if not cfg.eval_only and cfg.forget_loss != "base":
         print("Train started")
         trainer.train()
-    # if cfg.save_model:
-    #     trainer.save_model()
+    if cfg.save_model:
+        trainer.save_model()
     #save the tokenizer
     if cfg.save_model and (not cfg.eval_only):
         model.save_pretrained(cfg.save_dir)

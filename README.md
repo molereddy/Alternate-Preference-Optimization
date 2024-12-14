@@ -1,6 +1,6 @@
 # Alternate Preference Optimization for Unlearning Knowledge
 
-We notice that TOFU's Llama2 finetune and retain models have reproducibility issues due to the usage of distributed training. In our experiments, we rely on these model checkpoints and eval logs (in the `data/` folder) in our experiments. For Llama3.2 we train our own models with parameters as mentioned in the paths and configs.
+We find that TOFU's Llama2 finetune and retain models have reproducibility issues due to the usage of distributed training. In our experiments, we rely on these model checkpoints and eval logs (in the `data` folder) in our experiments. For Llama3.2 we train our own models with parameters as mentioned in the paths and configs.
 
 ## Sample Commands
 
