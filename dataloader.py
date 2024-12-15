@@ -11,111 +11,25 @@ from evaluate_util import get_dataloader, get_all_evals
 from pathlib import Path
 from utils import get_batch_loss, get_forget_quality, get_model_utility, column_order
 
-
-def printll(name, inp):
-    #print list with 4 decimal for each item
-    print(name, [round(x, 4) for x in inp])
-
 class CustomTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         self.hyperparams = kwargs.pop('hyperparams')
         self.eval_cfg = kwargs.pop('eval_cfg')
-        # self.tokenizer = kwargs.pop('tokenizer')
         super(CustomTrainer, self).__init__(*args, **kwargs)
         
     def compute_loss(self, model, inputs, return_outputs=False):
         input_ids, labels, attention_mask = inputs
-        # forward pass
         outputs = model(input_ids, labels=labels, attention_mask=attention_mask)
-        # logits = outputs.get("logits")
         loss = outputs.loss
-        # # compute custom loss (suppose one has 3 labels with different weights)
-        # loss_fct = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 2.0, 3.0], device=model.device))
-        # loss = loss_fct(logits.view(-1, self.model.config.num_labels), labels.view(-1))
         return (loss, outputs) if return_outputs else loss
     
     def prediction_step(self, model, inputs, prediction_loss_only: bool, ignore_keys=None):
         input_ids, labels, attention_mask = inputs
-        # forward pass
         with torch.no_grad():
             outputs = model(input_ids, labels=labels, attention_mask=attention_mask)
             logits = outputs.logits
             loss = outputs.loss
         return (loss, logits, labels)
-    
-    def evaluate(
-        self,
-        eval_dataset = None,
-        ignore_keys = None,
-        metric_key_prefix = "eval",
-    ):
-        args = self.args
-        model = self._wrap_model(self.model, training=False, dataloader=None)
-        curr_step = self.state.global_step
-        eval_cfg = self.eval_cfg
-        print(model.dtype, self.args.dataloader_num_workers, self.eval_cfg.split_list, self.eval_cfg.split)
-
-        # if full fp16 or bf16 eval is wanted and this ``evaluation`` or ``predict`` isn't called
-        # while ``train`` is running, cast it to the right dtype first and then put on device
-        if not self.is_in_train:
-            if args.fp16_full_eval:
-                model = model.to(dtype=torch.float16, device=args.device)
-            elif args.bf16_full_eval:
-                model = model.to(dtype=torch.bfloat16, device=args.device)
-        
-
-        curr_save_dir = os.path.join(eval_cfg.save_dir, f"checkpoint-{curr_step}")
-        print("Saving eval in", curr_save_dir)
-        Path(curr_save_dir).mkdir(parents=True, exist_ok=True)
-        
-        aggregated_eval_logs = {}
-        model.eval()
-        with torch.no_grad():
-            for i, (folder, split, question_key, answer_key, eval_task, base_answer_key, perturbed_answer_key) in enumerate(zip(eval_cfg.data_path, eval_cfg.split_list, eval_cfg.question_key, eval_cfg.answer_key, eval_cfg.eval_task, eval_cfg.base_answer_key, eval_cfg.perturbed_answer_key)):
-                if eval_task == 'eval_log_forget':
-                    split = eval_cfg.split
-                print(f'Working on eval task {eval_task} with split {split}')
-                save_filename = os.path.join(curr_save_dir, f"{eval_task}.json")
-                if os.path.exists(save_filename) and not eval_cfg.overwrite:
-                    print(f"Skipping {eval_task} because {save_filename} already exists")
-                    continue
-
-                eval_dataloader, base_eval_dataloader, perturb_dataloader = get_dataloader(eval_cfg, eval_task, self.tokenizer, folder, split, question_key, answer_key, base_answer_key, perturbed_answer_key)
-                normalize_gt = False 
-                if 'eval_log' not in eval_task:
-                    normalize_gt = True
-                eval_logs = get_all_evals(eval_cfg, model, self.tokenizer, eval_task, eval_dataloader, base_eval_dataloader, perturb_dataloader, normalize_gt=normalize_gt)
-                aggregated_eval_logs[f'{eval_task}.json'] = eval_logs
-                
-                with open(save_filename, "w") as f: # dump logs to eval task
-                    json.dump(eval_logs, f, indent=4)
-        
-        # aggregated_eval_logs = interleave_eval_result_dict(aggregated_eval_logs, forget_rate, large_bsz=eval_cfg.batch_size, num_processes=world_size)
-        aggregated_eval_log_filename = os.path.join(curr_save_dir, "eval_log_aggregated.json")
-        with open(aggregated_eval_log_filename, 'w') as f:
-            json.dump(aggregated_eval_logs, f, indent=4)
-
-        model_utility = get_model_utility(aggregated_eval_logs)
-        # forget_quality = get_forget_quality(aggregated_eval_logs, aggregated_eval_logs)
-        aggregate_stat = {**model_utility}
-        
-        # log_fq = round(np.log10(aggregate_stat['Forget Quality']), 3)
-        rounded_stat = {k: round(v, 3) if k!= 'Forget Quality' else "{:.3e}".format(v) for k, v in aggregate_stat.items()}
-        rounded_stat['step'] = curr_step
-        # rounded_stat['logFQ'] = log_fq
-        rounded_stat = {k: rounded_stat[k] for k in column_order if k in rounded_stat}
-        
-        csv_path = os.path.join(eval_cfg.save_dir, 'results.csv')
-        if os.path.exists(csv_path):
-            with open(csv_path, 'a') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=list(rounded_stat.keys()))
-                writer.writerow(rounded_stat)
-        else:
-            with open(csv_path, 'w') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=list(rounded_stat.keys()))
-                writer.writeheader()
-                writer.writerow(rounded_stat)
-
 
 class CustomTrainerForgetting(Trainer):
     def __init__(self, *args, **kwargs):
@@ -212,10 +126,9 @@ class CustomTrainerForgetting(Trainer):
             kl_retain = self.retain_wt * KL(retain_inputs)[0]
             loss += kl_retain
 
-        elif self.loss_type in ["idk", "sub"]: # uses TextForgetDatasetQA
+        elif self.loss_type in ["idk", "sub"]:
             sub_inputs, retain_inputs = inputs
             sub_input_ids, sub_labels, sub_attention_mask = sub_inputs
-            # retain_input_ids, retain_labels, retain_attention_mask = retain_inputs
 
             NLL_sub = model(sub_input_ids, labels=sub_labels, attention_mask=sub_attention_mask).loss
             retain_loss = get_retain_loss(retain_inputs=retain_inputs)
@@ -242,6 +155,7 @@ class CustomTrainerForgetting(Trainer):
             loss += dpo_sub_forget
             retain_loss = get_retain_loss(retain_inputs=retain_inputs)
             loss += retain_loss  
+        
         elif 'npo' in self.loss_type:
             assert self.beta is not None
             if self.loss_type == 'npo':
@@ -258,6 +172,7 @@ class CustomTrainerForgetting(Trainer):
                 loss += po_sub 
             retain_loss = get_retain_loss(retain_inputs=retain_inputs)
             loss += retain_loss  
+        
         elif 'subppo' in self.loss_type:
             sub_inputs, forget_inputs, retain_inputs = inputs # sub/idk, forget and retain
             po_sub = PO(sub_inputs, self.beta, lose=False)[0]
@@ -296,9 +211,7 @@ class CustomTrainerForgetting(Trainer):
         # if full fp16 or bf16 eval is wanted and this ``evaluation`` or ``predict`` isn't called
         # while ``train`` is running, cast it to the right dtype first and then put on device
         if not self.is_in_train:
-            if args.fp16_full_eval:
-                model = model.to(dtype=torch.float16, device=args.device)
-            elif args.bf16_full_eval:
+            if args.bf16_full_eval:
                 model = model.to(dtype=torch.bfloat16, device=args.device)
         
 
@@ -329,7 +242,6 @@ class CustomTrainerForgetting(Trainer):
                     json.dump(eval_logs, f, indent=4)
         
         print('---'*40)
-        # aggregated_eval_logs = interleave_eval_result_dict(aggregated_eval_logs, forget_rate, large_bsz=eval_cfg.batch_size, num_processes=world_size)
         aggregated_eval_log_filename = os.path.join(curr_save_dir, "eval_log_aggregated.json")
         with open(aggregated_eval_log_filename, 'w') as f:
             json.dump(aggregated_eval_logs, f, indent=4)
@@ -356,22 +268,5 @@ class CustomTrainerForgetting(Trainer):
                 writer = csv.DictWriter(csvfile, fieldnames=list(rounded_stat.keys()))
                 writer.writeheader()
                 writer.writerow(rounded_stat)
-
-def compute_metrics(pred):
-    logits, labels = torch.from_numpy(pred.predictions), torch.from_numpy(pred.label_ids)
-    preds = torch.from_numpy(pred.predictions.argmax(-1))
-    shifted_labels = labels[..., 1:].contiguous()
-    acc = torch.mean((preds[..., :-1] == shifted_labels).float())
-    loss  = get_loss(logits, labels)
-    return {"eval accuracy": acc, "eval loss": loss.item()}
-
-def get_loss(output, labels):
-    shifted_labels = labels[..., 1:].contiguous()
-    output = output[..., :-1, :].contiguous()
-
-    loss_function = nn.CrossEntropyLoss(ignore_index=-100)
-    loss = loss_function(output.view(-1, output.size(-1)), shifted_labels.view(-1))
-
-    return loss
 
 
