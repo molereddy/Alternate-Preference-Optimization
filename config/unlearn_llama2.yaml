@@ -15,10 +15,6 @@ retain_type: NLL
 alpha: 1
 beta: null # 0.1
 augment_k: 1
-weights_scheduler:
-  mode: null
-  forget_freq: null
-  retain_freq: null
 start_with_eval: true
 save_dir: null
 overwrite_dir: true
