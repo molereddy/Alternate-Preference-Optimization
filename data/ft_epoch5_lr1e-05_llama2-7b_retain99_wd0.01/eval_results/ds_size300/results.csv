@@ -1,2 +1,2 @@
-step,Model Utility,Forget Quality,Cleanness Indistinguishability,Forget Truth Ratio,Real Authors ROUGE,Real Authors Probability,Real Authors Truth Ratio,Real World ROUGE,Real World Probability,Real World Truth Ratio,Retain ROUGE,Retain Probability,Retain Truth Ratio,Forget ROUGE,Forget Probability,KS Test Forget,Forget Cleanness
-0,0.621,1.0,0.0,0.685,0.928,0.459,0.604,0.882,0.412,0.539,0.989,0.991,0.465,0.397,0.18,0.0,0.919
+step,Model Utility,Forget Quality,CI,Forget Truth Ratio,Real Authors ROUGE,Real Authors Probability,Real Authors Truth Ratio,Real World ROUGE,Real World Probability,Real World Truth Ratio,Retain ROUGE,Retain Probability,Retain Truth Ratio,Forget ROUGE,Forget Probability,KS Test Forget,TC
+0,0.621,1.0,1.0,0.685,0.928,0.459,0.604,0.882,0.412,0.539,0.989,0.991,0.465,0.397,0.18,0.0,0.919
