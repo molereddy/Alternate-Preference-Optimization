@@ -102,7 +102,7 @@ def main(cfg):
         cfg.forget_loss = cfg.forget_loss[3:]
     
     hyperparams = {
-        'retain_wt': cfg.retain_wt, 'retain_type': cfg.retain_type, 'weights_scheduler': cfg.weights_scheduler
+        'retain_wt': cfg.retain_wt, 'retain_type': cfg.retain_type
     }
     if 'diff' in cfg.forget_loss:
         hyperparams['alpha']=cfg.alpha
