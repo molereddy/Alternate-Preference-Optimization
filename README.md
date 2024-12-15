@@ -9,7 +9,7 @@ In all our experiments, we rely on [TOFU](https://github.com/locuslab/tofu) chec
 
 ## Installation
 ```script
-conda create -n tofu python=3.10
+conda create -n tofu python=3.12
 conda activate tofu
 pip install -r requirements.txt
 pip install flash-attn --no-build-isolation
