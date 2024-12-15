@@ -8,7 +8,7 @@ import transformers
 import pandas as pd
 import os, sys, copy, shutil, json
 from pathlib import Path
-from utils import get_model_identifiers_from_yaml, get_model_utility_v2, rearrange_cols
+from utils import get_model_identifiers_from_yaml, rearrange_cols
 from omegaconf import OmegaConf
 
 HF_HOME = os.getenv('HF_HOME', '~/.cache/huggingface')
@@ -192,42 +192,8 @@ def main(cfg):
     if cfg.save_model:
         model.save_pretrained(cfg.save_dir)
         tokenizer.save_pretrained(cfg.save_dir)
-    
-    # results_csv = os.path.join(cfg.save_dir, 'results.csv')
-    
-    # results_df = pd.read_csv(results_csv)
-    # new_mu_values = []
-    
-    # for ckpt in os.listdir(cfg.save_dir):
-    #     if not ckpt.startswith("checkpoint"):
-    #         continue
-    #     ckpt_path = os.path.join(cfg.save_dir, ckpt)
-    #     if not os.path.isfile(os.path.join(ckpt_path, 'eval_log_forget.json')):
-    #         continue
-    #     step = int(ckpt.split('-')[1])
-    #     gibberish_config = OmegaConf.load(Path('config/eval_gibberish.yaml'))
-    #     add_gibberish_evals(ckpt_path, gibberish_config)
-    #     agg_eval_log_fname = os.path.join(ckpt_path, "eval_log_aggregated.json")
-    #     with open(agg_eval_log_fname, 'r') as f:
-    #         aggregated_eval_logs = json.load(f)
-    #     new_ckpt_values = get_model_utility_v2(aggregated_eval_logs, json.load(open(cfg.eval.retain_result, 'r')))
-    #     new_ckpt_values['step']=step
-    #     new_mu_values.append(new_ckpt_values)
-    
-    # assert len(new_mu_values) == len(results_df)
-    # new_mu_values = pd.DataFrame(new_mu_values)
-    # new_mu_values.sort_values(by='step', inplace=True)
-    
-    # columns_to_drop = [col for col in new_mu_values.columns if col in results_df.columns and col != 'step']
-    # new_mu_values = new_mu_values.drop(columns=columns_to_drop)
-    # results_df = results_df.merge(new_mu_values, on='step', how='inner')
-    # assert not results_df.isnull().values.any(), "Null values in merged df"
-    # results_df = rearrange_cols(results_df)
-    # results_df.to_csv(results_csv, index=False)
-    
-    # plot_trajectory(results_csv)
-    # plot_histograms(cfg.save_dir)
-    
+        
+    # find results.csv in cfg.save_dir
 
 if __name__ == "__main__":
     main()

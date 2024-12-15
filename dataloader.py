@@ -252,10 +252,8 @@ class CustomTrainerForgetting(Trainer):
         forget_quality = get_forget_quality(aggregated_eval_logs, retain_result)
         aggregate_stat = {**model_utility, **forget_quality}
         
-        log_fq = round(np.log10(aggregate_stat['Forget Quality']), 3)
         rounded_stat = {k: round(v, 3) if k!= 'Forget Quality' else "{:.3e}".format(v) for k, v in aggregate_stat.items()}
         rounded_stat['step'] = curr_step
-        rounded_stat['logFQ'] = log_fq
         rounded_stat = {k: rounded_stat[k] for k in column_order if k in rounded_stat}
         
         csv_path = os.path.join(eval_cfg.save_dir, 'results.csv')
