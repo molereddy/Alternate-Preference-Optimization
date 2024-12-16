@@ -254,13 +254,20 @@ class CustomTrainerForgetting(Trainer):
         forget_quality = get_forget_quality(aggregated_eval_logs, retain_eval_logs)
         model_utility = get_model_utility(aggregated_eval_logs)
         stat = {**model_utility, **forget_quality, **gibberish_scores}
-        stat = {k: ("{:.3e}".format(stat[k]) if k in ['Forget Quality', 'CI'] else round(stat[k], 3))
-                for k in column_order if k in stat}
         stat['step'] = curr_step
+        stat_copy = {}
+        # round up and reorder results to use in paper
+        for k in column_order:
+            if k in ['Forget Quality', 'CI']:
+                stat_copy[k] = "{:.3e}".format(stat[k])
+            elif k != 'step':
+                stat_copy[k] = round(stat[k], 3)
+            else:
+                stat_copy[k] = stat[k]
         csv_path = os.path.join(eval_cfg.save_dir, 'results.csv')
         mode = 'a' if os.path.exists(csv_path) else 'w'
         with open(csv_path, mode) as f:
-            w = csv.DictWriter(f, fieldnames=list(stat.keys()))
+            w = csv.DictWriter(f, fieldnames=column_order)
             if mode == 'w':
                 w.writeheader()
-            w.writerow(stat)
+            w.writerow(stat_copy)
