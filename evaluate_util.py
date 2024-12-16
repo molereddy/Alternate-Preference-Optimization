@@ -1,20 +1,17 @@
 from tqdm import tqdm
 from data_module import TextDatasetQA, collator_with_indices
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
-import os
-import hydra
 import evaluate
-import json
 from pathlib import Path
 from rouge_score import rouge_scorer
-from utils import get_model_identifiers_from_yaml, get_batch_loss
+from utils import get_batch_loss
 import torch.nn as nn
 from omegaconf import OmegaConf
 import numpy as np 
 
 def eval_perturbation_ratio(eval_dataloader, perturb_dataloader, model):
     eval_logs = {}
+    print("Evaluating logs for Truth Ratio")
     for batch, perturb_batch in tqdm(zip(eval_dataloader, perturb_dataloader)):
         input_ids, labels, attention_mask, indices = batch
         batch = {"input_ids": input_ids, "labels": labels, "attention_mask": attention_mask}
@@ -25,7 +22,6 @@ def eval_perturbation_ratio(eval_dataloader, perturb_dataloader, model):
             bsz = perturb_input_ids.shape[0]
             seq_len = 1
         perturb_batch = {"input_ids": perturb_input_ids.view(bsz*seq_len, -1), "labels": perturb_labels.view(bsz*seq_len, -1), "attention_mask": perturb_attention_mask.view(bsz*seq_len, -1)}
-
 
         #send to device
         for k, v in batch.items():
@@ -39,25 +35,13 @@ def eval_perturbation_ratio(eval_dataloader, perturb_dataloader, model):
             gt_loss = get_batch_loss(outputs.logits, batch['labels'])
             perturb_loss = get_batch_loss(perturb_outputs.logits, perturb_batch['labels']).view(bsz, seq_len)
         
-
         num_token_gt = (batch['labels']!=-100).sum(-1)
         num_token_perturb = (perturb_batch['labels']!=-100).view(bsz, seq_len, -1).sum(-1)
-
         mean_perturb_loss = perturb_loss.mean(dim=1)
-
         ratio = (mean_perturb_loss - gt_loss).mean()
-
-        
-        # eval_logs["perplexity delta"] = eval_logs.get("perplexity delta", []) + [ratio.item()]
-
-        # eval_logs['ground_truth_loss'] = eval_logs.get('ground_truth_loss', []) + [gt_loss.mean().item()]
-        # eval_logs['perturb_loss'] = eval_logs.get('perturb_loss', []) + [mean_perturb_loss.mean().item()]
-
         perturb_loss_per_token = perturb_loss/num_token_perturb
         gt_loss_per_token = gt_loss/num_token_gt
-        # truth_ratio = torch.exp(-1 * perturb_loss_per_token).mean(-1) / torch.exp(-1 * gt_loss_per_token)
         truth_ratio = torch.exp(gt_loss_per_token - perturb_loss_per_token.mean(-1))
-
 
         # zip index and each stat into a dict
         perturb_loss_per_token = dict(zip(indices.cpu().numpy().tolist(), perturb_loss_per_token.cpu().float().numpy().tolist()))
@@ -68,9 +52,7 @@ def eval_perturbation_ratio(eval_dataloader, perturb_dataloader, model):
         num_token_gt = dict(zip(indices.cpu().numpy().tolist(), num_token_gt.cpu().numpy().tolist()))
         num_token_perturb = dict(zip(indices.cpu().numpy().tolist(), num_token_perturb.cpu().numpy().tolist()))
 
-
         # merge dicts
-
         if 'average_perturb_loss' not in eval_logs:
             eval_logs['average_perturb_loss'] = {}
         if 'avg_paraphrased_loss' not in eval_logs:
@@ -96,6 +78,7 @@ def eval_perturbation_ratio(eval_dataloader, perturb_dataloader, model):
 
     return eval_logs
 
+
 def get_dataloader(cfg, eval_task, tokenizer, folder, split, question_key, answer_key, base_answer_key, perturbed_answer_key):
 
     torch_format_dataset = TextDatasetQA( 
@@ -117,24 +100,20 @@ def get_dataloader(cfg, eval_task, tokenizer, folder, split, question_key, answe
         answer_key=base_answer_key
     )
 
-    perturb_dataloader = None
-    #  and 'retain90' not in split
-    if 'full' not in split: # TOFU doesn't have perturb split for full dataset
-        perturb_torch_format_dataset = TextDatasetQA(
-            folder,
-            tokenizer=tokenizer, 
-            model_family=cfg.model_family, 
-            max_length=cfg.generation.max_length, 
-            split=split, 
-            question_key=question_key, 
-            answer_key=perturbed_answer_key
-        )
+    perturb_torch_format_dataset = TextDatasetQA(
+        folder,
+        tokenizer=tokenizer, 
+        model_family=cfg.model_family, 
+        max_length=cfg.generation.max_length, 
+        split=split, 
+        question_key=question_key, 
+        answer_key=perturbed_answer_key
+    )
 
     if cfg.ds_size:
         torch_format_dataset.data = torch_format_dataset.data.select(range(min(cfg.ds_size, len(torch_format_dataset.data))))
-        base_torch_format_dataset.data = base_torch_format_dataset.data.select(range(min(cfg.ds_size, len(base_torch_format_dataset.data))))    
-        if 'full' not in split:
-            perturb_torch_format_dataset.data = perturb_torch_format_dataset.data.select(range(min(cfg.ds_size, len(perturb_torch_format_dataset.data))))
+        base_torch_format_dataset.data = base_torch_format_dataset.data.select(range(min(cfg.ds_size, len(base_torch_format_dataset.data))))
+        perturb_torch_format_dataset.data = perturb_torch_format_dataset.data.select(range(min(cfg.ds_size, len(perturb_torch_format_dataset.data))))
     
     eval_dataloader = torch.utils.data.DataLoader(
         torch_format_dataset, batch_size=cfg.batch_size, collate_fn=collator_with_indices
@@ -143,12 +122,12 @@ def get_dataloader(cfg, eval_task, tokenizer, folder, split, question_key, answe
         base_torch_format_dataset, batch_size=cfg.batch_size//4, collate_fn=collator_with_indices
     )
     
-    if 'full' not in split:
-        perturb_dataloader = torch.utils.data.DataLoader(
-            perturb_torch_format_dataset, batch_size=cfg.batch_size//4, collate_fn=collator_with_indices
-        )
+    perturb_dataloader = torch.utils.data.DataLoader(
+        perturb_torch_format_dataset, batch_size=cfg.batch_size//4, collate_fn=collator_with_indices
+    )
 
     return eval_dataloader, base_eval_dataloader, perturb_dataloader
+
 
 def get_all_evals(cfg, model, tokenizer, eval_task, eval_dataloader, base_eval_dataloader, perturb_dataloader, normalize_gt=False):
     eval_logs = {}
@@ -162,16 +141,15 @@ def get_all_evals(cfg, model, tokenizer, eval_task, eval_dataloader, base_eval_d
         input_ids, labels, attention_mask, indices = batch
         all_indices.extend(indices.cpu().numpy().tolist())
         batch = {"input_ids": input_ids, "labels": labels, "attention_mask": attention_mask}
-        #send to device
         for k, v in batch.items():
             batch[k] = v.to(model.device)
 
         with torch.no_grad():
             outputs = model(**batch)
-            input_string, gen_output, gt = run_generation(cfg, batch, model, tokenizer=tokenizer)
-            gen_outputs.extend(gen_output)
-            ground_truths.extend(gt)
-            input_strings.extend(input_string)
+            generation_dumps = run_generation(cfg, batch, model, tokenizer)
+            input_strings.extend(generation_dumps[0])
+            gen_outputs.extend(generation_dumps[1])
+            ground_truths.extend(generation_dumps[2])
             
         gt_loss = get_batch_loss(outputs.logits, batch['labels'])
         num_token_gt = (batch['labels']!=-100).sum(-1)
@@ -185,11 +163,11 @@ def get_all_evals(cfg, model, tokenizer, eval_task, eval_dataloader, base_eval_d
             eval_logs['num_token_gt'] = {}
         if 'generated_text' not in eval_logs:
             eval_logs['generated_text'] = {}
-        # print(gt_loss.shape, num_token_gt.shape)
+        
         eval_logs['avg_gt_loss'].update(dict(zip(indices.cpu().numpy().tolist(), gt_loss_per_token.cpu().float().numpy().tolist())))
         eval_logs['gt_loss'].update(dict(zip(indices.cpu().numpy().tolist(), gt_loss.cpu().float().numpy().tolist())))
         eval_logs['num_token_gt'].update(dict(zip(indices.cpu().numpy().tolist(), num_token_gt.cpu().numpy().tolist())))
-        eval_logs['generated_text'].update(dict(zip(indices.cpu().numpy().tolist(), zip(input_string, gen_output,gt))))
+        eval_logs['generated_text'].update(dict(zip(indices.cpu().numpy().tolist(), zip(*generation_dumps))))
 
 
     eval_logs.update(eval_rouge_recall(gen_outputs, ground_truths, all_indices))
@@ -216,7 +194,6 @@ def get_all_evals(cfg, model, tokenizer, eval_task, eval_dataloader, base_eval_d
 def eval_accuracy(logits, labels):
     preds =logits.argmax(-1)
     shifted_labels = labels[..., 1:].contiguous()
-    # the places where labels is -100 should be ignored in the accuracy computation
     mask = (shifted_labels != -100)
     acc = (preds[..., :-1] == shifted_labels).float()
     acc *= mask.float()
@@ -224,8 +201,8 @@ def eval_accuracy(logits, labels):
 
     return {"eval accuracy": acc.item()}
 
+
 def run_generation(cfg, batch, model, tokenizer):
-    # Load the model configuration YAML
     model_config_path = 'config/model_config.yaml'
     model_config = OmegaConf.load(model_config_path)
     
@@ -266,22 +243,22 @@ def run_generation(cfg, batch, model, tokenizer):
         if split_symbol in output:
             output = output.split(split_symbol)[0]
         cleaned_strs.append(output)
+
     return input_strings, cleaned_strs, ground_truth
 
 
 def eval_bleu(gen_outputs, ground_truths):
-
     rouge = evaluate.load('rouge')
     bleu = evaluate.load('bleu')
     rouge_res = rouge.compute(predictions=gen_outputs, references=ground_truths)
     bleu_res = bleu.compute(predictions=gen_outputs, references=ground_truths)
-
 
     eval_result = {
         'rouge': rouge_res,
         'bleu': bleu_res,
     }
     return eval_result
+
 
 def eval_rouge_recall(gen_outputs, ground_truths, indices):
     scorer = rouge_scorer.RougeScorer(['rouge1', 'rougeL'], use_stemmer=True)
@@ -294,6 +271,7 @@ def eval_rouge_recall(gen_outputs, ground_truths, indices):
 
 
     return {'rouge1_recall': rouge1_recall, 'rougeL_recall': rougeL_recall}
+
 
 if __name__ == "__main__":
     main()

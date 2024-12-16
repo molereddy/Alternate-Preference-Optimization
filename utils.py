@@ -1,98 +1,29 @@
-import yaml
+import os, json, yaml, copy
 import copy
 import torch
 import numpy as np
-from scipy.stats import sem, hmean, ks_2samp
-from natsort import natsorted
-column_order = ['step', 'MU V2', 'Model Utility', 'logFQ', 
-        'Forget Quality', 'Forget Probability', 'Forget Cleanness',
-        'Forget Paraphrase', 'Forget Perturbed', 'Forget Truth Ratio', 
-        'Real Authors ROUGE', 'Real Authors Probability', 'Real Authors Truth Ratio', 
-        'Real World ROUGE', 'Real World Probability', 'Real World Truth Ratio', 
-        'Retain ROUGE', 'Retain Probability', 'Retain Truth Ratio', 
-        'Forget ROUGE', 'KS Test Forget']
+from scipy.stats import hmean, ks_2samp
+import torch.nn.functional as F
+from tqdm import tqdm
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-def rearrange_cols(df):
-    cols_ = [col for col in column_order if col in df.columns]
-    return df[cols_]
+
+column_order = ['step', 'Model Utility', 'Forget Quality', 'TC', 'CI'
+                'Forget Probability', 'Forget Cleanness',
+                'Forget Paraphrase', 'Forget Perturbed', 
+                'Forget Truth Ratio', 'Real Authors ROUGE', 
+                'Real Authors Probability', 'Real Authors Truth Ratio', 
+                'Real World ROUGE', 'Real World Probability', 
+                'Real World Truth Ratio', 'Retain ROUGE', 
+                'Retain Probability', 'Retain Truth Ratio', 
+                'Forget ROUGE', 'KS Test Forget']
 
 def get_model_identifiers_from_yaml(model_family):
-    #path is model_configs.yaml
-    '''
-    models:
-        llama2-7b:
-            hf_key: "NousResearch/Llama-2-7b-chat-hf"
-            question_start_tag: "[INST] "
-            question_end_tag: " [/INST] "
-            answer_tag: ""
-            start_of_sequence_token: "<s>"
-    '''
     model_configs  = {}
     with open("config/model_config.yaml", "r") as f:
         model_configs = yaml.load(f, Loader=yaml.FullLoader)
     return model_configs[model_family]
 
-def merge_dicts(a, b):
-    """ Recursively merges dict b into a deep copy of dict a """
-    # Create a deep copy of a to avoid modifying it in place
-    a_copy = copy.deepcopy(a)
-
-    for key, value in b.items():
-        if key in a_copy:
-            if isinstance(a_copy[key], dict) and isinstance(value, dict):
-                a_copy[key] = merge_dicts(a_copy[key], value)
-            elif isinstance(a_copy[key], list) and isinstance(value, list):
-                a_copy[key] = a_copy[key] # we see duplicate lists, keep only one
-            else:
-                a_copy[key] = value  # Overwrite value from b into a_copy
-        else:
-            a_copy[key] = value
-
-    # sort the keys with natural order
-    a_copy = {k: a_copy[k] for k in natsorted(a_copy)}    
-    return a_copy
-
-def get_total_len(name, forget_rate):
-    if name == 'eval_real_author_wo_options.json':
-        return 100
-    elif name == 'eval_real_world_wo_options.json':
-        return 117
-    elif name == 'eval_log.json':
-        return 300
-    else:
-        if forget_rate == 'forget01':
-            return 40
-        elif forget_rate == 'forget05':
-            return 200
-        else:
-            return 300
-
-def interleave(a, b, size):
-    assert len(a) == len(b)
-    assert size > 0
-    c = []
-    for i in range(0, len(a), size):
-        c.extend(a[i:i+size])
-        c.extend(b[i:i+size])
-    return c
-
-# PLEASE BE VERY VERY CAREFUL HERE
-# This code, although takes num_processes as an argument, it in fact only supports num_processes=2
-# Future improvement should support interleave for more than 2 processes
-# also, small_bsz = large_bsz//4 is hardcoded, which is only true for our experiments
-# because when we construct perturb and paraphrase data_loader, we set batch_size=large_bsz//4 specifically 
-def interleave_eval_result_dict(eval_result_dict, forget_rate, large_bsz, num_processes=2):
-    small_bsz = large_bsz//4
-    for k, v in eval_result_dict.items():
-        # each v corresponds to one ckpt
-        for metric, value in v.items():
-            bsz = small_bsz if 'perturb' in metric or 'paraphrase' in metric else large_bsz
-            total_len = get_total_len(k, forget_rate)
-            # split in two
-            a = value[0:len(value)//2]
-            b = value[len(value)//2:]
-            eval_result_dict[k][metric] = interleave(a, b, bsz)[:total_len]
-    return eval_result_dict
 
 def get_model_utility(eval_result_dict):
     eval_task_dict = {
@@ -112,7 +43,7 @@ def get_model_utility(eval_result_dict):
     # k is different files
     for k, v in eval_result_dict.items():
         # getting Probability
-        if 'eval_log' in k:
+        if 'eval_log' in k: # tofu datasets
             gt_probs = np.exp(-1 * np.array(list(eval_result_dict[k]['avg_gt_loss'].values())))
             avg_gt_prob = np.mean(gt_probs)
         else:
@@ -125,133 +56,80 @@ def get_model_utility(eval_result_dict):
         # getting ROUGE
         avg_rouge = np.array(list(eval_result_dict[k]['rougeL_recall'].values())).mean()
         output_result[f'{eval_task_dict[k]} ROUGE'] = avg_rouge
-
-        # if 'avg_paraphrased_loss' not in eval_result_dict[k]: ## ADD BACK FOR FINETUNE
-        #     continue
-        # getting Truth Ratio
         data_indices = list(eval_result_dict[k]['avg_paraphrased_loss'].keys())
-        # #------------
-        # # tofu aggregate stat version
-        # avg_paraphrase_np_values = np.array(list(eval_result_dict[k]['avg_paraphrased_loss'].values()))
-        # avg_perturbed_np_values = np.array(list(eval_result_dict[k]['average_perturb_loss'].values()))
-        # #------------
-        # group avg_paraphrased_loss and average_perturb_loss by data_indices
         avg_paraphrase_np_values = []
         avg_perturbed_np_values = []
         for data_idx in data_indices:
             avg_paraphrase_np_values.append(eval_result_dict[k]['avg_paraphrased_loss'][data_idx])
             avg_perturbed_np_values.append(eval_result_dict[k]['average_perturb_loss'][data_idx])
 
-        avg_paraphrase_np_values = np.array(list(eval_result_dict[k]['avg_paraphrased_loss'].values())) # loss
-        avg_perturbed_np_values = np.array(list(eval_result_dict[k]['average_perturb_loss'].values())) # loss
-        avg_perturbed_np_values = avg_perturbed_np_values.mean(axis=-1) # loss
+        avg_paraphrase_np_values = np.array(list(eval_result_dict[k]['avg_paraphrased_loss'].values()))
+        avg_perturbed_np_values = np.array(list(eval_result_dict[k]['average_perturb_loss'].values()))
+        avg_perturbed_np_values = avg_perturbed_np_values.mean(axis=-1)
 
         r_truth =  np.exp(-1* (avg_perturbed_np_values - avg_paraphrase_np_values)) # R_truth
         if eval_task_dict[k]=='Forget':
             output_result[f'Forget Paraphrase'] = np.mean(np.exp(-1*avg_paraphrase_np_values))
             output_result[f'Forget Perturbed'] = np.mean(np.exp(-1*avg_perturbed_np_values))
-        # output_result[f'{eval_task_dict[k]} paraphrased_over_perturbed'] = curr_stat_1
-        truth_ratio = np.mean(np.minimum(r_truth, 1/r_truth)) if 'forget' in k else np.mean(np.maximum(0, 1 - r_truth))
-            
+        truth_ratio = np.mean(np.minimum(r_truth, 1/r_truth)) if 'forget' in k else np.mean(np.maximum(0, 1 - r_truth))  
         output_result[f'{eval_task_dict[k]} Truth Ratio'] = truth_ratio
 
-
-    mu_cand_keys = ['Real Authors ROUGE','Real Authors Probability', 'Real Authors Truth Ratio',
-                    'Real World ROUGE', 'Real World Truth Ratio', 'Real World Probability',
-                    'Retain Truth Ratio', 'Retain Probability', 'Retain ROUGE']
-    mu_cand_vals = []
-    candidate_weights = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1])
-    ignore = []
+    model_utility_cands = []
     for k, v in output_result.items():
-        try:
-            _ = round(v, 3)
-        except Exception as e:
-            ignore.append(k)
-            continue
-        if k in mu_cand_keys:
-            mu_cand_vals.append(v)
-    for k in ignore:
-        _ = output_result.pop(k)
-    if len(mu_cand_vals)==len(candidate_weights):
-        output_result['Model Utility'] = round(hmean(mu_cand_vals, weights=candidate_weights), 3)
-
+        if 'Forget' not in k:
+            model_utility_cands.append(v)
+    output_result['Model Utility'] = hmean(model_utility_cands)
+    
     return output_result
 
-def get_fq_v3(eval_result_dict, retain_logs):
-    forget_dict = eval_result_dict['eval_log_forget.json']
-    unlearn_ppl = np.array(list(forget_dict['llama3_ppl'].values()))
-    retain_ppl = np.array(list(retain_logs['eval_log_forget.json']['llama3_ppl'].values()))
+
+def get_gibberish_evals(dir_path, retain_logs):
     
-    return {'FQ V3':np.log10(ks_2samp(unlearn_ppl, retain_ppl).pvalue)}
-
-def get_model_utility_v2(eval_result_dict, retain_logs):
-    eval_task_dict = {
-        'eval_real_author_wo_options.json': 'Real Authors',
-        'eval_real_world_wo_options.json': 'Real World',
-        'eval_log.json': 'Retain',
-        'eval_log_forget.json': 'Forget'
-    }
-    eval_tasks = list(eval_task_dict.keys())
-    metrics = ['ROUGE', 'Probability', 'Truth Ratio']
-
-    output_result = {}
-    for eval_task in eval_tasks:
-        for metric in metrics:
-            output_result[eval_task_dict[eval_task] + ' ' + metric] = []
-
-    # k is different files
-    for k, v in eval_result_dict.items():
-        # getting Probability
-        if 'eval_log' in k:
-            gt_probs = np.exp(-1 * np.array(list(eval_result_dict[k]['avg_gt_loss'].values())))
-            avg_gt_prob = np.mean(gt_probs)
-        else:
-            avg_true_prob = np.exp(-1 * np.array(list(eval_result_dict[k]['avg_gt_loss'].values())))
-            avg_false_prob = np.exp(-1 * np.array(list(eval_result_dict[k]['average_perturb_loss'].values())))
-            avg_all_prob = np.concatenate([np.expand_dims(avg_true_prob, axis=-1), avg_false_prob], axis=1).sum(-1)
-            avg_gt_prob = np.mean(avg_true_prob/avg_all_prob)
-        output_result[f'{eval_task_dict[k]} Probability'] = avg_gt_prob
-
-        # getting ROUGE
-        avg_rouge = np.array(list(eval_result_dict[k]['rougeL_recall'].values())).mean()
-        output_result[f'{eval_task_dict[k]} ROUGE'] = avg_rouge
-
-        # getting Truth Ratio
-        data_indices = list(eval_result_dict[k]['avg_paraphrased_loss'].keys())
-        avg_paraphrase_np_values = []
-        avg_perturbed_np_values = []
-        for data_idx in data_indices:
-            avg_paraphrase_np_values.append(eval_result_dict[k]['avg_paraphrased_loss'][data_idx])
-            avg_perturbed_np_values.append(eval_result_dict[k]['average_perturb_loss'][data_idx])
-
-        avg_paraphrase_np_values = np.array(list(eval_result_dict[k]['avg_paraphrased_loss'].values())) # loss
-        avg_perturbed_np_values = np.array(list(eval_result_dict[k]['average_perturb_loss'].values())) # loss
-        avg_perturbed_np_values = avg_perturbed_np_values.mean(axis=-1) # loss
-
-        r_truth =  np.exp(-1* (avg_perturbed_np_values - avg_paraphrase_np_values)) # R_truth
-        truth_ratio = np.mean(np.minimum(r_truth, 1/r_truth)) if 'forget' in k else np.mean(np.maximum(0, 1 - r_truth))
-            
-        output_result[f'{eval_task_dict[k]} Truth Ratio'] = truth_ratio
-
-    # cleanness
-    forget_dict = eval_result_dict['eval_log_forget.json']
-    unlearn_cleanness = np.array(list(forget_dict['cleanness'].values()))
-    retain_cleanness = np.array(list(retain_logs['eval_log_forget.json']['cleanness'].values()))
-    avg_clean_score = np.mean(unlearn_cleanness)
-    output_result[f'Forget Cleanness'] = round(avg_clean_score, 3)
+    print("Evaluating gibberish at path:", dir_path)
+    model = AutoModelForSequenceClassification.from_pretrained("madhurjindal/autonlp-Gibberish-Detector-492513457", torch_dtype=torch.bfloat16).to("cuda")
+    model.eval()
+    tokenizer = AutoTokenizer.from_pretrained("madhurjindal/autonlp-Gibberish-Detector-492513457")
     
-    mu_cand_keys = ['Real Authors ROUGE','Real Authors Probability','Real World ROUGE',
-                    'Real World Probability','Retain Truth Ratio', 'Retain Probability', 
-                    'Retain ROUGE']
-    mu_cand_vals = []
-    candidate_weights = np.array([0.25, 0.25, 0.25, 0.25, 1/3, 1/3, 1/3])
-    for k, v in output_result.items():
-        if k in mu_cand_keys:
-            mu_cand_vals.append(v)
-    output_result['MU V2'] = round(hmean(mu_cand_vals, weights=candidate_weights), 3)
-    test_res = ks_2samp(unlearn_cleanness, retain_cleanness)
-    output_result['FQ V2'] = np.log10(test_res.pvalue)
-    return output_result
+    unlearn_model_logs_path = os.path.join(dir_path, "eval_log_aggregated.json")
+    unlearn_logs = json.load(open(unlearn_model_logs_path, 'r'))["eval_log_forget.json"]
+    unlearn_texts = [v[1] for k, v in unlearn_logs['generated_text'].items()]
+    retain_logs = retain_logs["eval_log_forget.json"]
+    retain_texts = [v[1] for k, v in retain_logs['generated_text'].items()]
+    
+    bsz = 80
+    
+    unlearn_scores = []
+    for idx in tqdm(range(0, len(unlearn_texts), bsz)):
+        batch = unlearn_texts[idx:idx+bsz]
+        tokenized_sentences = tokenizer(batch, max_length=256,truncation=True, 
+                                        padding=True,return_tensors="pt", 
+                                        return_attention_mask=True)
+        tokenized_sentences = {k: v.to("cuda") for k, v in tokenized_sentences.items()}
+        with torch.no_grad():
+            outputs = model(**tokenized_sentences)
+        probs = F.softmax(outputs.logits, dim=-1)[:, 0].cpu()
+        probs = probs.to(dtype=torch.float32).numpy().tolist()
+        unlearn_scores.extend(probs)
+    unlearn_scores = np.array(unlearn_scores)
+    retain_scores = []
+    for idx in tqdm(range(0, len(retain_texts), bsz)):
+        batch = retain_texts[idx:idx+bsz]
+        tokenized_sentences = tokenizer(batch, max_length=256,truncation=True, 
+                                        padding=True,return_tensors="pt", 
+                                        return_attention_mask=True)
+        tokenized_sentences = {k: v.to("cuda") for k, v in tokenized_sentences.items()}
+        with torch.no_grad():
+            outputs = model(**tokenized_sentences)
+        probs = F.softmax(outputs.logits, dim=-1)[:, 0].cpu()
+        probs = probs.to(dtype=torch.float32).numpy().tolist()
+        retain_scores.extend(probs)
+    retain_scores = np.array(retain_scores)
+    
+    TC = round(np.mean(unlearn_scores), 3)
+    CI = ks_2samp(unlearn_scores, retain_scores).pvalue
+    
+    return {'TC': TC, 'CI': CI}
+
 
 def get_forget_quality(unlearn_result, retain_result):
     unlearn_forget_result = unlearn_result['eval_log_forget.json']
@@ -269,17 +147,17 @@ def get_forget_quality(unlearn_result, retain_result):
     retain_truth_ratio =  np.exp( retain_perturbed_np_values - retain_paraphrase_np_values)
 
     test_res = ks_2samp(unlearn_truth_ratio, retain_truth_ratio)
-    return {'Forget Quality': test_res.pvalue, 'KS Test PVal Forget': test_res.pvalue, 'KS Test Forget': test_res.statistic}
+    results = {'Forget Quality': test_res.pvalue, 'KS Test PVal Forget': test_res.pvalue, 'KS Test Forget': test_res.statistic}
+    
+    return results
 
 
 def get_batch_loss(output, labels):
     shifted_labels = labels[..., 1:].contiguous()
     output = output[..., :-1, :].contiguous()
-
     loss_function = torch.nn.CrossEntropyLoss(ignore_index=-100, reduction='none')
     # get the sum loss for each sequence in a batch
     loss = loss_function(output.transpose(-1,-2), shifted_labels).sum(dim=-1)
-
     return loss
 
 def add_dataset_index(dataset):

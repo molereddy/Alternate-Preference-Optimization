@@ -8,7 +8,7 @@ import transformers
 import pandas as pd
 import os, sys, copy, shutil, json
 from pathlib import Path
-from utils import get_model_identifiers_from_yaml, rearrange_cols
+from utils import get_model_identifiers_from_yaml
 from omegaconf import OmegaConf
 
 HF_HOME = os.getenv('HF_HOME', '~/.cache/huggingface')
@@ -27,8 +27,6 @@ def main(cfg):
     forget_percentage = int(cfg.split[6:]) # 01, 05 or 10
     cfg.eval.retain_result = os.path.join(model_cfg['retain_evals_path'].format(split=100-forget_percentage), 
                                           'eval_results/ds_size300/eval_log_aggregated.json')
-
-    print("Base cfg before prep is", cfg)
     
     # setup paths
     cfg.model_path = model_cfg["results_path"]
@@ -60,6 +58,7 @@ def main(cfg):
         Path(cfg.save_dir).mkdir(parents=True)
     
     # save cfg
+    print("cfg is", OmegaConf.to_container(cfg, resolve=True))
     with open(f"{cfg.save_dir}/config.yaml", "w") as file:
         OmegaConf.save(cfg, file)
         

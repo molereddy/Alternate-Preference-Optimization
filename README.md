@@ -43,7 +43,7 @@ python forget.py --config-name=unlearn_llama2.yaml forget_loss=idkdpo beta=0.1 r
 You can find the stored results in `paper_models/<MODEL>/<FORGET_SPLIT>/<METHOD>/<PARAMS>`
 
 ## Citing Our Work
-If you find our method interesting and benefecial, please cite our work:
+If you find this repository or our method beneficial, please cite our work:
 ```
 @article{mekala2024alternate,
   title={Alternate preference optimization for unlearning factual knowledge in large language models},

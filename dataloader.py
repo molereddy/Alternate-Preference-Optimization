@@ -6,10 +6,11 @@ import numpy as np
 from torch import nn
 from transformers import Trainer
 import torch.nn.functional as F
+from pathlib import Path
 
 from evaluate_util import get_dataloader, get_all_evals
-from pathlib import Path
-from utils import get_batch_loss, get_forget_quality, get_model_utility, column_order
+from utils import get_forget_quality, get_model_utility, get_gibberish_evals
+from utils import get_batch_loss, column_order
 
 class CustomTrainer(Trainer):
     def __init__(self, *args, **kwargs):
@@ -242,29 +243,24 @@ class CustomTrainerForgetting(Trainer):
                     json.dump(eval_logs, f, indent=4)
         
         print('---'*40)
-        aggregated_eval_log_filename = os.path.join(curr_save_dir, "eval_log_aggregated.json")
-        with open(aggregated_eval_log_filename, 'w') as f:
+        agg_evals_dump_path = os.path.join(curr_save_dir, "eval_log_aggregated.json")
+        with open(agg_evals_dump_path, 'w') as f:
             json.dump(aggregated_eval_logs, f, indent=4)
-
+        aggregated_eval_logs = json.load(open(agg_evals_dump_path, 'r'))
+        
         assert eval_cfg.retain_result
+        retain_eval_logs = json.load(open(eval_cfg.retain_result, 'r'))
+        gibberish_scores = get_gibberish_evals(curr_save_dir, retain_eval_logs)
+        forget_quality = get_forget_quality(aggregated_eval_logs, retain_eval_logs)
         model_utility = get_model_utility(aggregated_eval_logs)
-        retain_result = json.load(open(eval_cfg.retain_result, 'r'))
-        forget_quality = get_forget_quality(aggregated_eval_logs, retain_result)
-        aggregate_stat = {**model_utility, **forget_quality}
-        
-        rounded_stat = {k: round(v, 3) if k!= 'Forget Quality' else "{:.3e}".format(v) for k, v in aggregate_stat.items()}
-        rounded_stat['step'] = curr_step
-        rounded_stat = {k: rounded_stat[k] for k in column_order if k in rounded_stat}
-        
+        stat = {**model_utility, **forget_quality, **gibberish_scores}
+        stat = {k: ("{:.3e}".format(stat[k]) if k in ['Forget Quality', 'CI'] else round(stat[k], 3))
+                for k in column_order if k in stat}
+        stat['step'] = curr_step
         csv_path = os.path.join(eval_cfg.save_dir, 'results.csv')
-        if os.path.exists(csv_path):
-            with open(csv_path, 'a') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=list(rounded_stat.keys()))
-                writer.writerow(rounded_stat)
-        else:
-            with open(csv_path, 'w') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=list(rounded_stat.keys()))
-                writer.writeheader()
-                writer.writerow(rounded_stat)
-
-
+        mode = 'a' if os.path.exists(csv_path) else 'w'
+        with open(csv_path, mode) as f:
+            w = csv.DictWriter(f, fieldnames=list(stat.keys()))
+            if mode == 'w':
+                w.writeheader()
+            w.writerow(stat)
