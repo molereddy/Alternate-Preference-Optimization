@@ -8,8 +8,8 @@ from tqdm import tqdm
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 
-column_order = ['step', 'Model Utility', 'Forget Quality', 'TC', 'CI',
-                'Forget Probability', 'Forget Cleanness',
+column_order = ['step', 'Model Utility', 'Forget Quality', 
+                'TC', 'CI', 'Forget Probability',
                 'Forget Paraphrase', 'Forget Perturbed', 
                 'Forget Truth Ratio', 'Real Authors ROUGE', 
                 'Real Authors Probability', 'Real Authors Truth Ratio', 
