@@ -30,6 +30,18 @@ python generate.py dataset_config.dataset_kwargs.name=forget01
 python forget.py --config-name=unlearn_llama2.yaml forget_loss=subdpo beta=0.1 retain_wt=1 seed=0 lr=5e-05 num_epochs=2 augment_k=5 batch_size=5
 ```
 
+Unlearned model weights for llama2-7b can be found [here](model.push_to_hub("Dornavineeth/Llama2-7b-tofu_unlearn-altpo")).
+```script
+model_kwargs = {
+        'attn_implementation': 'flash_attention_2',
+        'torch_dtype': torch.bfloat16,
+        'trust_remote_code': True,
+        'cache_dir': os.getenv('HF_HOME', '~/.cache/huggingface')
+    }
+model_path = "Dornavineeth/Llama2-7b-tofu_unlearn-altpo"
+model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
+```
+
 ### NPO
 ```script
 python forget.py --config-name=unlearn_llama2.yaml forget_loss=npo beta=0.05 retain_wt=2 seed=0 lr=2e-05 num_epochs=10 batch_size=5
